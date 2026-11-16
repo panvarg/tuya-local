@@ -1,0 +1,178 @@
+# ILIFE A30 Pro — sprzątanie pokoi w Home Assistant (lokalnie, bez chmury Tuya)
+#
+# Jak to działa (ustalone testami 2026-11-16):
+#   DP 129 = base64 z bajtów 01 01 + 4-bajtowa maska pokoi (big-endian), bit N = pokój o ID N.
+#   Samo ustawienie DP 129 od razu uruchamia sprzątanie wybranych pokoi (ze stacji i ze standby).
+#   Gdy robot jest w trakcie powrotu do stacji, polecenie potrafi zostać zignorowane — wtedy
+#   skrypt najpierw zatrzymuje robota.
+#
+# ID pokoi:  0 Salon, 1 Kuchnia, 2 Pokój dziecięcy, 3 Korytarz, 4 Toaleta (prawdopodobnie),
+#            5 Łazienka, 7 Sypialnia
+#
+# Wymaga tuya-local z forka panvarg/tuya-local (encja "Room selection" i atrybut room_list).
+# Popraw nazwy encji vacuum.robot_vacuum / text.robot_vacuum_room_selection na swoje.
+
+# ============================================================
+# KROK 1. Do configuration.yaml (jeśli masz już sekcje template:/script:, dopisz zawartość do nich)
+# ============================================================
+
+template:
+  - sensor:
+      - name: "Robot pokoje"
+        unique_id: ilife_a30_pokoje
+        icon: mdi:floor-plan
+        # stan = liczba pokoi zgłoszonych przez robota; atrybuty = id mapy i słownik id -> nazwa
+        # (robot nie zawsze podaje tę listę — wtedy stan 0)
+        state: >
+          {% set raw = state_attr('vacuum.robot_vacuum', 'room_list') %}
+          {% if raw %}
+            {% set p = (raw | base64_decode).split(',') %}
+            {{ ((p | length) - 2) // 2 }}
+          {% else %}0{% endif %}
+        attributes:
+          map_id: >
+            {% set raw = state_attr('vacuum.robot_vacuum', 'room_list') %}
+            {{ (raw | base64_decode).split(',')[0] if raw else none }}
+          rooms: >
+            {% set raw = state_attr('vacuum.robot_vacuum', 'room_list') %}
+            {% set ns = namespace(r={}) %}
+            {% if raw %}
+              {% set p = (raw | base64_decode).split(',') %}
+              {% for i in range(2, p | length - 1, 2) %}
+                {% set ns.r = dict(ns.r, **{p[i]: p[i + 1]}) %}
+              {% endfor %}
+            {% endif %}
+            {{ ns.r }}
+
+script:
+  # Główny skrypt: wybierz dowolne pokoje i start.
+  robot_sprzataj_pokoje:
+    alias: "Robot: sprzątaj wybrane pokoje"
+    icon: mdi:robot-vacuum
+    mode: single
+    fields:
+      pokoje:
+        name: Pokoje
+        required: true
+        example: '["Kuchnia", "Korytarz"]'
+        selector:
+          select:
+            multiple: true
+            options:
+              - Salon
+              - Kuchnia
+              - Pokój dziecięcy
+              - Korytarz
+              - Toaleta
+              - Łazienka
+              - Sypialnia
+    variables:
+      ids:
+        Salon: 0
+        Kuchnia: 1
+        Pokój dziecięcy: 2
+        Korytarz: 3
+        Toaleta: 4
+        Łazienka: 5
+        Sypialnia: 7
+      maska: >
+        {% set ns = namespace(m=0) %}
+        {% for p in (pokoje if pokoje is list else [pokoje]) | unique %}
+          {% if p in ids %}{% set ns.m = ns.m + 2 ** ids[p] %}{% endif %}
+        {% endfor %}
+        {{ ns.m }}
+      # base64 z bajtów 01 01 00 00 00 <maska> (maska 1..255 wystarcza dla ID 0-7)
+      wartosc: >
+        {% set a = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' %}
+        {% set m = maska | int %}
+        {{ 'AQEAAA' ~ a[m // 64] ~ a[m % 64] }}
+    sequence:
+      - condition: template
+        value_template: "{{ maska | int > 0 }}"
+      # Jeśli robot wraca do stacji albo sprząta — najpierw go zatrzymaj, inaczej zignoruje wybór.
+      - if:
+          - condition: state
+            entity_id: vacuum.robot_vacuum
+            state: ["returning", "cleaning"]
+        then:
+          - action: vacuum.pause
+            target:
+              entity_id: vacuum.robot_vacuum
+          - delay: "00:00:03"
+      - action: text.set_value
+        target:
+          entity_id: text.robot_vacuum_room_selection
+        data:
+          value: "{{ wartosc }}"
+
+  # Skróty — jeden pokój (i przykładowy zestaw) na przycisk w panelu.
+  robot_salon:
+    alias: "Robot: Salon"
+    icon: mdi:sofa
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Salon"] }
+  robot_kuchnia:
+    alias: "Robot: Kuchnia"
+    icon: mdi:stove
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Kuchnia"] }
+  robot_pokoj_dzieciecy:
+    alias: "Robot: Pokój dziecięcy"
+    icon: mdi:teddy-bear
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Pokój dziecięcy"] }
+  robot_korytarz:
+    alias: "Robot: Korytarz"
+    icon: mdi:door
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Korytarz"] }
+  robot_toaleta:
+    alias: "Robot: Toaleta"
+    icon: mdi:toilet
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Toaleta"] }
+  robot_lazienka:
+    alias: "Robot: Łazienka"
+    icon: mdi:shower
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Łazienka"] }
+  robot_sypialnia:
+    alias: "Robot: Sypialnia"
+    icon: mdi:bed
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Sypialnia"] }
+  robot_korytarz_toaleta_lazienka:
+    alias: "Robot: Korytarz + Toaleta + Łazienka"
+    icon: mdi:broom
+    sequence:
+      - action: script.robot_sprzataj_pokoje
+        data: { pokoje: ["Korytarz", "Toaleta", "Łazienka"] }
+
+# ============================================================
+# KROK 2 (opcjonalnie). Karta w panelu — wklej jako kartę "Ręczna" (YAML):
+# ============================================================
+# type: grid
+# columns: 4
+# square: false
+# cards:
+#   - { type: button, entity: script.robot_salon, name: Salon }
+#   - { type: button, entity: script.robot_kuchnia, name: Kuchnia }
+#   - { type: button, entity: script.robot_pokoj_dzieciecy, name: Dzieci }
+#   - { type: button, entity: script.robot_korytarz, name: Korytarz }
+#   - { type: button, entity: script.robot_toaleta, name: Toaleta }
+#   - { type: button, entity: script.robot_lazienka, name: Łazienka }
+#   - { type: button, entity: script.robot_sypialnia, name: Sypialnia }
+#   - type: button
+#     name: Do bazy
+#     icon: mdi:home-import-outline
+#     tap_action:
+#       action: perform-action
+#       perform_action: vacuum.return_to_base
+#       target: { entity_id: vacuum.robot_vacuum }
