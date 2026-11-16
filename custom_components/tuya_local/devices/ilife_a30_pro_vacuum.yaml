@@ -165,6 +165,10 @@ entities:
         type: string
         optional: true
         name: voice_data
+      - id: 133
+        type: string
+        optional: true
+        name: room_list
   - entity: switch
     name: Charge
     icon: "mdi:battery-charging"
@@ -520,5 +524,14 @@ entities:
     dps:
       - id: 15
         type: base64
+        name: value
+        optional: true
+  - entity: text
+    name: Room selection
+    category: config
+    icon: "mdi:floor-plan"
+    dps:
+      - id: 129
+        type: string
         name: value
         optional: true
