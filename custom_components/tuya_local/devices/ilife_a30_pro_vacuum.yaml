@@ -129,6 +129,7 @@ entities:
         optional: true
       - id: 12
         type: string
+        optional: true
         name: direction_control
         mapping:
           - dps_val: forward
@@ -186,6 +187,7 @@ entities:
     dps:
       - id: 6
         type: integer
+        optional: true
         name: sensor
         unit: min
   - entity: sensor
@@ -195,6 +197,7 @@ entities:
     dps:
       - id: 7
         type: integer
+        optional: true
         name: sensor
         unit: m2
   - entity: sensor
@@ -359,6 +362,7 @@ entities:
     dps:
       - id: 25
         type: boolean
+        optional: true
         name: switch
   - entity: switch
     name: Intermittent cleaning
