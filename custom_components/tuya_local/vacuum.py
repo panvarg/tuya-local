@@ -2,16 +2,21 @@
 Setup for different kinds of Tuya vacuum cleaners
 """
 
+import asyncio
+import base64
+import binascii
 import logging
 
 from homeassistant.components.vacuum import (
     SERVICE_CLEAN_SPOT,
     SERVICE_RETURN_TO_BASE,
     SERVICE_STOP,
+    Segment,
     StateVacuumEntity,
     VacuumActivity,
     VacuumEntityFeature,
 )
+from homeassistant.helpers.storage import Store
 
 from .device import TuyaLocalDevice
 from .entity import TuyaLocalEntity
@@ -19,6 +24,37 @@ from .helpers.config import async_tuya_setup_platform
 from .helpers.device_config import TuyaEntityConfig
 
 _LOGGER = logging.getLogger(__name__)
+
+# Segment (room) cleaning, used by devices that define a "clean_segments" dp.
+# Format "ilife" (ILIFE A30 Pro and similar):
+#   clean_segments = base64(01 01 <4 byte big-endian bitmask>), bit N = room id N
+#   room_list      = base64("<map id>,<map name>,<id>,<name>,<id>,<name>,...")
+SEGMENT_STORE_VERSION = 1
+DEFAULT_SEGMENT_COUNT = 10
+
+
+def parse_ilife_room_list(raw):
+    """Parse an ILIFE room list into [(id, name), ...]; [] if not parseable."""
+    if not raw:
+        return []
+    try:
+        text = base64.b64decode(raw).decode("utf-8")
+    except binascii.Error, ValueError, UnicodeDecodeError:
+        return []
+    parts = [p.strip() for p in text.split(",")]
+    rooms = []
+    for i in range(2, len(parts) - 1, 2):
+        if parts[i].isdigit() and parts[i + 1]:
+            rooms.append((parts[i], parts[i + 1]))
+    return rooms
+
+
+def encode_ilife_segments(segment_ids):
+    """Encode room ids into the ILIFE clean_segments value."""
+    mask = 0
+    for seg in segment_ids:
+        mask |= 1 << int(seg)
+    return base64.b64encode(bytes([1, 1]) + mask.to_bytes(4, "big")).decode()
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -52,6 +88,10 @@ class TuyaLocalVacuum(TuyaLocalEntity, StateVacuumEntity):
         self._direction_dps = dps_map.get("direction_control")
         self._error_dps = dps_map.get("error")
         self._fan_dps = dps_map.pop("fan_speed", None)
+        self._segments_dps = dps_map.get("clean_segments")
+        self._room_list_dps = dps_map.get("room_list")
+        self._segment_store = None
+        self._segment_cache = None
 
         if self._status_dps is None:
             raise AttributeError(f"{config.config_id} is missing a status dps")
@@ -88,6 +128,9 @@ class TuyaLocalVacuum(TuyaLocalEntity, StateVacuumEntity):
                 support |= VacuumEntityFeature.START
             if "pause" in cmd_support:
                 support |= VacuumEntityFeature.PAUSE
+
+        if self._segments_dps:
+            support |= VacuumEntityFeature.CLEAN_AREA
 
         return support
 
@@ -229,3 +272,57 @@ class TuyaLocalVacuum(TuyaLocalEntity, StateVacuumEntity):
                 "%s setting fan speed to %s", self._config.config_id, fan_speed
             )
             await self._fan_dps.async_set_value(self._device, fan_speed)
+
+    async def _async_segment_cache(self):
+        """Load the persisted room list (rooms are not always reported)."""
+        if self._segment_store is None:
+            self._segment_store = Store(
+                self.hass,
+                SEGMENT_STORE_VERSION,
+                f"tuya_local.segments.{self.unique_id}",
+            )
+            self._segment_cache = await self._segment_store.async_load() or []
+        return self._segment_cache
+
+    async def async_get_segments(self):
+        """Return the rooms that can be cleaned."""
+        cache = await self._async_segment_cache()
+        rooms = []
+        if self._room_list_dps:
+            rooms = parse_ilife_room_list(self._room_list_dps.get_value(self._device))
+        if rooms:
+            rooms = [[rid, name] for rid, name in rooms]
+            if rooms != cache:
+                self._segment_cache = rooms
+                await self._segment_store.async_save(rooms)
+        elif cache:
+            rooms = cache
+        else:
+            try:
+                seen = self.last_seen_segments
+            except RuntimeError:
+                seen = None
+            if seen:
+                rooms = [[s.id, s.name] for s in seen]
+            else:
+                rooms = [[str(i), f"Room {i}"] for i in range(DEFAULT_SEGMENT_COUNT)]
+        return [Segment(id=str(rid), name=name) for rid, name in rooms]
+
+    async def async_clean_segments(self, segment_ids, **kwargs):
+        """Clean the given rooms."""
+        if not self._segments_dps:
+            return
+        ids = [str(s) for s in segment_ids if str(s).isdigit() and int(s) < 32]
+        if not ids:
+            _LOGGER.warning(
+                "%s: no valid rooms in %s", self._config.config_id, segment_ids
+            )
+            return
+        # The robot ignores a new room selection while it is cleaning or
+        # returning to base, so stop it first.
+        if self.activity in (VacuumActivity.CLEANING, VacuumActivity.RETURNING):
+            await self.async_pause()
+            await asyncio.sleep(3)
+        value = encode_ilife_segments(ids)
+        _LOGGER.info("%s cleaning rooms %s (%s)", self._config.config_id, ids, value)
+        await self._segments_dps.async_set_value(self._device, value)

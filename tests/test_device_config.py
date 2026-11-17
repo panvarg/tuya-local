@@ -312,6 +312,8 @@ KNOWN_DPS = {
             "direction_control",
             "error",
             "fan_speed",
+            "clean_segments",
+            "room_list",
         ],
     },
     "valve": {

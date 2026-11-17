@@ -170,6 +170,11 @@ entities:
         type: string
         optional: true
         name: room_list
+      - id: 129
+        type: string
+        optional: true
+        hidden: true
+        name: clean_segments
   - entity: switch
     name: Charge
     icon: "mdi:battery-charging"

@@ -1,11 +1,36 @@
 # ILIFE A30 Pro – sprzątanie pokoi (fork tuya-local)
 
-Ten fork dodaje do pliku `ilife_a30_pro_vacuum.yaml` dwie rzeczy:
+Ten fork dodaje do robota ILIFE A30 Pro sprzątanie wybranych pokoi:
 
-| DP  | Encja w HA                          | Co robi |
-|-----|-------------------------------------|---------|
-| 133 | atrybut `room_list` encji odkurzacza | lista pokoi zgłaszana przez robota (base64) |
-| 129 | `text` „Room selection”             | wybór pokoi – **ustawienie od razu uruchamia sprzątanie** |
+| Co | Gdzie w HA | Opis |
+|----|------------|------|
+| **Sprzątanie obszarów** (zalecane) | okienko odkurzacza → *Sprzątaj obszar*, akcja `vacuum.clean_area` | wbudowana funkcja HA: pokoje robota przypisujesz do obszarów HA i wybierasz je myszką/w automatyzacjach |
+| DP 133 | atrybut `room_list` encji odkurzacza | lista pokoi zgłaszana przez robota (base64) |
+| DP 129 | `text` „Room selection” | wybór pokoi „ręcznie” – **ustawienie od razu uruchamia sprzątanie** |
+
+## Najprościej: sprzątanie obszarów (bez skryptów)
+
+Po instalacji (niżej) i dodaniu robota:
+
+1. *Ustawienia → Obszary* – utwórz obszary dla pokoi (np. Kuchnia, Łazienka), jeśli ich nie masz.
+2. Otwórz encję robota → ⚙ (ustawienia encji) → **Przypisz segmenty odkurzacza do obszarów**
+   i dopasuj pokoje robota do obszarów. Nazwy pokoi pochodzą z robota (pojawiają się po pierwszym
+   sprzątaniu); zanim robot je zgłosi, widać „Room 0”, „Room 1”… – numer to ID pokoju
+   (jak je ustalić – sekcja *Jak ustalić ID i nazwy pokoi* niżej).
+3. Gotowe: w okienku robota jest **Sprzątaj obszar** (można zaznaczyć kilka pokoi), a w
+   automatyzacjach/harmonogramach akcja **Odkurzacz: sprzątaj obszar** z wyborem obszarów:
+
+   ```yaml
+   action: vacuum.clean_area
+   target:
+     entity_id: vacuum.robot_vacuum
+   data:
+     cleaning_area_id: [kuchnia, lazienka]
+   ```
+
+Jeśli robot akurat sprząta albo wraca do stacji, integracja najpierw go zatrzymuje (inaczej
+zignorowałby nowy wybór). Pozostała część tego opisu (skrypty, DP 129) jest potrzebna tylko,
+jeśli wolisz sterować pokojami po swojemu.
 
 Fork codziennie scala zmiany z [make-all/tuya-local](https://github.com/make-all/tuya-local)
 (workflow `Sync upstream`), więc aktualizacje przez HACS nie kasują tych poprawek.
