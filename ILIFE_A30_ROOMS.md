@@ -12,7 +12,12 @@ Fork codziennie scala zmiany z [make-all/tuya-local](https://github.com/make-all
 
 ## Instalacja w Home Assistant
 
-Wymagany [HACS](https://hacs.xyz/).
+Wymagany **Home Assistant 2026.9 lub nowszy** (Tuya Local używa Pythona 3.14 – na starszym HA
+integracja się nie wczyta: „Invalid handler specified”, w logach `SyntaxError` w `device_config.py`).
+
+Od HA 2026.11 HACS jest wbudowany jako **Katalog społeczności** (Ustawienia → Katalog dodatków,
+integracja `marketplace`) – poniższe kroki wykonuje się tam tak samo; przed pierwszą instalacją
+trzeba zaakceptować jego ostrzeżenie. Na starszym HA potrzebny jest [HACS](https://hacs.xyz/).
 
 1. **Usuń oryginalne Tuya Local z HACS** (jeśli jest): HACS → Tuya Local → ⋮ → *Usuń*.
    **Nie** usuwaj integracji w *Ustawienia → Urządzenia i usługi* – urządzenia i ich
@@ -27,7 +32,8 @@ Wymagany [HACS](https://hacs.xyz/).
    - ID urządzenia i *local key* (np. z `tinytuya wizard` → `devices.json`),
    - adres IP robota,
    - wersja protokołu: `auto` lub `3.3`,
-   - typ urządzenia: **ILIFE A30 Pro Robot vacuum**.
+   - typ urządzenia: **ILIFE A30 Pro** – HA domyślnie podpowiada *ILIFE V30*, wybierz A30 Pro
+     z listy ręcznie.
 
    Jeśli robot był już dodany, po restarcie pojawią się sama encja **Room selection**
    i atrybut `room_list` odkurzacza.
