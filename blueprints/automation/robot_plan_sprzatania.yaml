@@ -1,0 +1,81 @@
+blueprint:
+  name: "Robot: plan sprzątania"
+  description: >-
+    Uruchamia robota o wybranej godzinie w wybrane dni.
+    Bez wybranych obszarów sprząta całe mieszkanie, z obszarami – tylko je
+    (wymaga odkurzacza z funkcją „sprzątaj obszar”, np. ILIFE A30 Pro z forka
+    panvarg/tuya-local). Robot startuje tylko wtedy, gdy stoi w stacji.
+  domain: automation
+  source_url: https://github.com/panvarg/tuya-local/blob/main/blueprints/automation/robot_plan_sprzatania.yaml
+  input:
+    robot:
+      name: Robot
+      selector:
+        entity:
+          filter:
+            - domain: vacuum
+    godzina:
+      name: Godzina
+      default: "10:00:00"
+      selector:
+        time: {}
+    dni:
+      name: Dni tygodnia
+      default: [mon, wed, fri]
+      selector:
+        select:
+          multiple: true
+          mode: list
+          options:
+            - label: Poniedziałek
+              value: mon
+            - label: Wtorek
+              value: tue
+            - label: Środa
+              value: wed
+            - label: Czwartek
+              value: thu
+            - label: Piątek
+              value: fri
+            - label: Sobota
+              value: sat
+            - label: Niedziela
+              value: sun
+    obszary:
+      name: Obszary
+      description: Puste = całe mieszkanie.
+      default: []
+      selector:
+        area:
+          multiple: true
+
+mode: single
+
+variables:
+  obszary: !input obszary
+
+triggers:
+  - trigger: time
+    at: !input godzina
+
+conditions:
+  - condition: time
+    weekday: !input dni
+  - condition: state
+    entity_id: !input robot
+    state: docked
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ obszary | count > 0 }}"
+    then:
+      - action: vacuum.clean_area
+        target:
+          entity_id: !input robot
+        data:
+          cleaning_area_id: "{{ obszary }}"
+    else:
+      - action: vacuum.start
+        target:
+          entity_id: !input robot
